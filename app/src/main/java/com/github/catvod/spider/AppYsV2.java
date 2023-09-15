@@ -5,8 +5,9 @@ import android.text.TextUtils;
 
 import com.github.catvod.crawler.Spider;
 import com.github.catvod.crawler.SpiderDebug;
+import com.github.catvod.net.OkHttp;
 import com.github.catvod.utils.Misc;
-import com.github.catvod.utils.okhttp.OkHttpUtil;
+
 
 import org.json.JSONArray;
 import org.json.JSONException;
@@ -34,26 +35,29 @@ public class AppYsV2 extends Spider {
         try {
             extInfos = extend.split("###");
         } catch (Throwable th) {
+        th.printStackTrace();
         }
     }
 
     @Override
     public String homeContent(boolean filter) {
         try {
-            String url = getCateUrl(getApiUrl());
+            String url = getCateUrl(getApiUrl());  //getCateUrl会在url后加相应字符串“nav?token=”
             JSONArray jsonArray = null;
-            if (!url.isEmpty()) {
-                SpiderDebug.log(url);
-                String json = desc(OkHttpUtil.string(url, getHeaders(url)), (byte) 0);
-                JSONObject obj = new JSONObject(json);
-                if (obj.has("list") && obj.get("list") instanceof JSONArray) {
+            if (!url.isEmpty()) {               //如果url不是空的
+                SpiderDebug.log(url);           //输出http://kuying.kuyouk.top:9528/api.php/app/nav?token=
+                String json = desc(OkHttp.string(url, getHeaders(url)), (byte) 0);
+                //         SpiderDebug.log(json+"2222222222");
+                JSONObject obj = new JSONObject(json);  //字符串转json对象obj
+                if (obj.has("list") && obj.get("list") instanceof JSONArray) { //instanceof用来判断其左边对象是否为其右边类的实例
                     jsonArray = obj.getJSONArray("list");
+                    SpiderDebug.log(jsonArray.toString());  //
                 } else if (obj.has("data") && obj.get("data") instanceof JSONObject && obj.getJSONObject("data").has("list") && obj.getJSONObject("data").get("list") instanceof JSONArray) {
                     jsonArray = obj.getJSONObject("data").getJSONArray("list");
                 } else if (obj.has("data") && obj.get("data") instanceof JSONArray) {
                     jsonArray = obj.getJSONArray("data");
                 }
-            } else { // 通过filter列表读分类
+            } else { // getCateUrl()返回url为空，通过filter列表读分类
                 String filterStr = getFilterTypes(url, null);
                 String[] classes = filterStr.split("\n")[0].split("\\+");
                 jsonArray = new JSONArray();
@@ -73,27 +77,31 @@ public class AppYsV2 extends Spider {
                 for (int i = 0; i < jsonArray.length(); i++) {
                     JSONObject jObj = jsonArray.getJSONObject(i);
                     String typeName = jObj.getString("type_name");
-                    if (isBan(typeName))
+                    if (isBan(typeName))   //过滤伦理/情色/福利分类
                         continue;
                     String typeId = jObj.getString("type_id");
                     JSONObject newCls = new JSONObject();
                     newCls.put("type_id", typeId);
-                    newCls.put("type_name", typeName);
+                    newCls.put("type_name", typeName);  //newCls在后面调用
                     JSONObject typeExtend = jObj.optJSONObject("type_extend");
                     if (filter) {
-                        String filterStr = getFilterTypes(url, typeExtend);
-                        String[] filters = filterStr.split("\n");
+                        String filterStr = getFilterTypes(url, typeExtend);  //getFilterTypes对字符串处理，添加"'"筛选class+全部=+"
+                        String[] filters = filterStr.split("\n");  //split按照指定的分割符进行分割，然后返回字符串数组
+
+                        SpiderDebug.log(filters[0]); //
+
                         JSONArray filterArr = new JSONArray();
-                        for (int k = url.isEmpty() ? 1 : 0; k < filters.length; k++) {
-                            String l = filters[k].trim();
+                        for (int k = url.isEmpty() ? 1 : 0; k < filters.length; k++) {   //url为空，k=1,否则k=0
+                            String l = filters[k].trim();  //trim() 方法用于删除字符串的头尾空白符
                             if (l.isEmpty())
                                 continue;
-                            String[] oneLine = l.split("\\+");
-                            String type = oneLine[0].trim();
+                            String[] oneLine = l.split("\\+");   //  \\s表示空格,回车,换行等空白符, +号表示一个或多个的意思,所以...
+                            String type = oneLine[0].trim();   //trim() 方法用于删除字符串的头尾空白符,oneLine[0]为数组里面第1个字符串即“筛选class”
+
                             String typeN = type;
-                            if (type.contains("筛选")) {
+                            if (type.contains("筛选")) {            //如果字符串里面有“筛选”，把“筛选”变成空,即把“筛选class”，变成“class”
                                 type = type.replace("筛选", "");
-                                if (type.equals("class"))
+                                if (type.equals("class"))           //如果等于 “class”，换成中文“类型”
                                     typeN = "类型";
                                 else if (type.equals("area"))
                                     typeN = "地区";
@@ -103,13 +111,13 @@ public class AppYsV2 extends Spider {
                                     typeN = "年份";
                             }
                             JSONObject jOne = new JSONObject();
-                            jOne.put("key", type);
-                            jOne.put("name", typeN);
+                            jOne.put("key", type);            //"key":"class"
+                            jOne.put("name", typeN);          //"name":"类型"
                             JSONArray valueArr = new JSONArray();
                             for (int j = 1; j < oneLine.length; j++) {
                                 JSONObject kvo = new JSONObject();
                                 String kv = oneLine[j].trim();
-                                int sp = kv.indexOf("=");
+                                int sp = kv.indexOf("=");   //返回“=”在字符串数组的索引
                                 if (sp == -1) {
                                     if (isBan(kv))
                                         continue;
@@ -124,18 +132,18 @@ public class AppYsV2 extends Spider {
                                 }
                                 valueArr.put(kvo);
                             }
-                            jOne.put("value", valueArr);
+                            jOne.put("value", valueArr);         //"value":[{"n":"全部","v":""},{"n":"喜剧","v":"喜剧"}
                             filterArr.put(jOne);
                         }
                         if (!result.has("filters")) {
-                            result.put("filters", new JSONObject());
+                            result.put("filters", new JSONObject());  // 添加{"filters"
                         }
-                        result.getJSONObject("filters").put(typeId, filterArr);
+                        result.getJSONObject("filters").put(typeId, filterArr); //变成{"filters":{"1":
                     }
                     classes.put(newCls);
                 }
             }
-            result.put("class", classes);
+            result.put("class", classes);       //变成{"filters":{"1":[{"key":"class","name":"类型"
             return result.toString();
         } catch (Exception e) {
             SpiderDebug.log(e);
@@ -154,7 +162,7 @@ public class AppYsV2 extends Spider {
                 isTV = true;
             }
             SpiderDebug.log(url);
-            String json = desc(OkHttpUtil.string(url, getHeaders(url)), (byte) 1);
+            String json = desc(OkHttp.string(url, getHeaders(url)), (byte) 1);
             JSONObject obj = new JSONObject(json);
             JSONArray videos = new JSONArray();
             if (isTV) {
@@ -212,7 +220,7 @@ public class AppYsV2 extends Spider {
             url = url.replace("筛选year", (extend != null && extend.containsKey("year")) ? extend.get("year") : "");
             url = url.replace("排序", (extend != null && extend.containsKey("排序")) ? extend.get("排序") : "");
             SpiderDebug.log(url);
-            String json = desc(OkHttpUtil.string(url, getHeaders(url)), (byte) 2);
+            String json = desc(OkHttp.string(url, getHeaders(url)), (byte) 2);
             JSONObject obj = new JSONObject(json);
             int totalPg = Integer.MAX_VALUE;
             try {
@@ -278,8 +286,8 @@ public class AppYsV2 extends Spider {
         try {
             String apiUrl = getApiUrl();
             String url = getPlayUrlPrefix(apiUrl) + ids.get(0);
-            SpiderDebug.log(url);
-            String json = desc(OkHttpUtil.string(url, getHeaders(url)), (byte) 3);
+          //  SpiderDebug.log(url);
+            String json = desc(OkHttp.string(url, getHeaders(url)), (byte) 3);
             JSONObject obj = new JSONObject(json);
             JSONObject result = new JSONObject();
             JSONObject vod = new JSONObject();
@@ -300,7 +308,7 @@ public class AppYsV2 extends Spider {
             String apiUrl = getApiUrl();
             String url = getSearchUrl(apiUrl, URLEncoder.encode(key));
             //System.out.println(url);
-            String json = desc(OkHttpUtil.string(url, getHeaders(url)), (byte) 5);
+            String json = desc(OkHttp.string(url, getHeaders(url)), (byte) 5);
             JSONObject obj = new JSONObject(json);
             JSONArray jsonArray = null;
             JSONArray videos = new JSONArray();
@@ -509,7 +517,7 @@ public class AppYsV2 extends Spider {
     String getCateFilterUrlPrefix(String URL) {
         if (URL.contains("api.php/app") || URL.contains("xgapp")) {
             if (URL.contains("dijiaxia")) {
-                URL = "http://www.dijiaxia.com/api.php/app/";
+                URL = "http://kuying.kuyouk.top:9528/api.php/app/";
                 return URL + "video?tid=";
             } else {
                 return URL + "video?tid=";
@@ -540,7 +548,7 @@ public class AppYsV2 extends Spider {
     String getFilterTypes(String URL, JSONObject typeExtend) {
         String str = "";
         if (typeExtend != null) {
-            Iterator<String> typeExtendKeys = typeExtend.keys();
+            Iterator<String> typeExtendKeys = typeExtend.keys(); //迭代器，用于遍历typeExtend
             while (typeExtendKeys.hasNext()) {
                 String key = typeExtendKeys.next();
                 if (key.equals("class") || key.equals("area") || key.equals("lang") || key.equals("year")) {
@@ -768,7 +776,7 @@ public class AppYsV2 extends Spider {
             if (parseUrl.isEmpty() || parseUrl.equals("null"))
                 continue;
             String playUrl = parseUrl + url;
-            String content = desc(OkHttpUtil.string(playUrl, null), (byte) 4);
+            String content = desc(OkHttp.string(playUrl, null), (byte) 4);
             JSONObject tryJson = null;
             try {
                 tryJson = Misc.jsonParse(url, content);
